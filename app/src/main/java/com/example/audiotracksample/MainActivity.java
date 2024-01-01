@@ -1,5 +1,9 @@
 package com.example.audiotracksample;
 
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioTrack;
@@ -7,6 +11,7 @@ import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
+import android.widget.TextView;
 
 import java.io.InputStream;
 import java.nio.ByteBuffer;
@@ -22,40 +27,106 @@ public class MainActivity extends AppCompatActivity {
     private int mChannelConfig;
     private int mAudioFormat;
     private int mAllDataSize; // 全データサイズ
-    private int mSoundDataSize; // 音声データサイズ
-    private int mHeaderSize; // mAllDataSize - mSoundDataSize
+    private int mHeaderSize; // mAllDataSize - wavDataSize
     private boolean mIsPlaying; // 再生中 = true, 停止中 = false
+    private final static int SOUND_DATA_ID = R.raw.sine_400;
+    private AudioTrack mAudioTrack;
+    byte[] mWavData;
+    Button mPlayButton;
 
+    // ジャイロセンサー関連
+    private SensorManager mSensorManager;
+    private Sensor mRotationSensor;
+    private TextView mSensorTextView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        // ボタンを設定
-        Button button = findViewById(R.id.play_button);
+        // センサーを取得
+        mSensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
+        mRotationSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR);
+        mSensorTextView = findViewById(R.id.sensorTextView);
 
         // リスナーをボタンに登録
         // expression lambda
-        button.setOnClickListener(v-> {
+        mPlayButton = findViewById(R.id.play_button);
+        mPlayButton.setOnClickListener(v-> {
             try {
                 if (!mIsPlaying){
                     mIsPlaying = true;
                     Log.d(TAG, "再生開始");
-                    button.setText("Stop");
+                    mPlayButton.setText("Stop");
                     // 非同期でAudioTrackの再生を開始
                     new WavPlayTask().execute();
                 }
                 else {
                     mIsPlaying = false;
                     Log.d(TAG, "再生停止");
-                    button.setText("Play");
+                    mPlayButton.setText("Play");
                 }
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         });
     }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // センサーリスナー登録
+        mSensorManager.registerListener(mSensorEventListener, mRotationSensor, SensorManager.SENSOR_DELAY_FASTEST);
+
+        // wavデータセット
+        setWavData();
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        // センサーリスナー登録解除
+        mSensorManager.unregisterListener(mSensorEventListener);
+
+        if (mAudioTrack != null){
+            mIsPlaying = false;
+            mPlayButton.setText("Play");
+            mAudioTrack.stop();
+            mAudioTrack.release();
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // センサーリスナー登録解除
+        mSensorManager.unregisterListener(mSensorEventListener);
+
+        if (mAudioTrack != null){
+            mIsPlaying = false;
+            mPlayButton.setText("Play");
+            mAudioTrack.stop();
+            mAudioTrack.release();
+        }
+    }
+
+    private SensorEventListener mSensorEventListener = new SensorEventListener() {
+        @Override
+        public void onSensorChanged(SensorEvent event) {
+            if (event.sensor.getType() == Sensor.TYPE_GAME_ROTATION_VECTOR){
+                float rotationX = event.values[0];
+                float rotationY = event.values[1];
+                float rotationZ = event.values[2];
+                String strTmp = "ジャイロセンサー\nX: " + rotationX + "\nY: " + rotationY + "\nZ: " + rotationZ;
+                mSensorTextView.setText(strTmp);
+            }
+        }
+
+        @Override
+        public void onAccuracyChanged(Sensor sensor, int accuracy) {
+
+        }
+    };
 
     private class WavPlayTask extends AsyncTask<Void, Void, Void>{
         @Override
@@ -69,17 +140,14 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void wavPlay() throws Exception {
-
+    private void setWavData(){
         try {
-            int resourceId = R.raw.sine_400;
-            // wavを読み込む
-            InputStream input = getResources().openRawResource(resourceId);
-
-            // ヘッダーを解析(データサイズと種類とスタート位置を取得)
-            InputStream inputForHeader = getResources().openRawResource(resourceId);
-            byte[] headerBuffer = new byte[inputForHeader.available()];
-            mAllDataSize = inputForHeader.read(headerBuffer);
+            // 再生読み込み用
+            InputStream inputStream = getResources().openRawResource(SOUND_DATA_ID);
+            // ヘッダ解析用
+            InputStream inputStreamForHeader = getResources().openRawResource(SOUND_DATA_ID);
+            byte[] headerBuffer = new byte[inputStreamForHeader.available()];
+            mAllDataSize = inputStreamForHeader.read(headerBuffer);
             checkWaveHeaderData(headerBuffer);
 
             // ヘッダーをスキップ(inputをヘッダー分、読み込んでスキップしてる)
@@ -87,11 +155,11 @@ public class MainActivity extends AppCompatActivity {
             // だが、必ず、fmt と data のチャンクIDは必ずある
             // data から取れる音声データのサイズ以外をヘッダとする
             headerBuffer = new byte[mHeaderSize];
-            input.read(headerBuffer, 0, mHeaderSize);
+            inputStream.read(headerBuffer, 0, mHeaderSize);
 
             int bufferSize = AudioTrack.getMinBufferSize(mSampleRate, mChannelConfig, mAudioFormat);
             // http://bril-tech.blogspot.com/2015/08/androidaudiotrack.html
-            AudioTrack audioTrack = new AudioTrack.Builder()
+            mAudioTrack = new AudioTrack.Builder()
                     .setAudioAttributes(new AudioAttributes.Builder()
                             .setUsage(AudioAttributes.USAGE_MEDIA)
                             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
@@ -103,27 +171,33 @@ public class MainActivity extends AppCompatActivity {
                             .build())
                     .setBufferSizeInBytes(bufferSize)
                     .build();
-            float maxVolume = AudioTrack.getMaxVolume();
-            Log.d(TAG, "maxVolume = " + maxVolume);
-            float minVolume = AudioTrack.getMinVolume();
-            Log.d(TAG, "minVolume = " + minVolume);
 
             // 読み込まれた分のサイズになっている
-            Log.d(TAG, "input size : " + input.available());
-            byte[] wavData = new byte[input.available()]; // wavDataのサイズで初期化
+            mWavData = new byte[inputStream.available()]; // wavDataのサイズで初期化
+            inputStream.read(mWavData);
 
+            // 閉じる
+            inputStreamForHeader.close();
+            inputStream.close();
+
+        } catch (Exception e){
+            Log.d(TAG, e.getMessage());
+            throw new RuntimeException(e.getMessage());
+        }
+    }
+
+    private void wavPlay() throws Exception {
+
+        try {
             // 再生準備開始
-            audioTrack.play();
+            mAudioTrack.play();
 
-            int wavDataSize = input.read(wavData);
-            input.close();
-            Log.d(TAG, "wavDataSize : " + wavDataSize);
             // 4byte配列でないと、ByteBufferでエラーが出る
 //            byte[] wavBlockByteData = {0,0,0,0};
 //            ByteBuffer intBuffer = ByteBuffer.allocate(Integer.BYTES);
             while (mIsPlaying){
                 Log.d(TAG, "再生中...");
-                for (int i = 0; i < wavDataSize; i+=2){
+                for (int i = 0; i < mWavData.length; i+=2){
                     // 再生停止なら抜ける
                     if (!mIsPlaying){
                         break;
@@ -151,23 +225,22 @@ public class MainActivity extends AppCompatActivity {
 //                wavData[i] = wavBlockByteData[3];
 
                     // 逐次writeする場合
-                    byte[] data = {wavData[i], wavData[i+1]};
+                    byte[] data = {mWavData[i], mWavData[i+1]};
                     // 1000の倍数ごとにGainを変更
                     // これぐらいの変更頻度でないとブツブツ音になる
                     if (i % 1000 == 0){
-                        float gain = ((float)i / (float)wavDataSize);
+                        float gain = ((float)i / (float)mWavData.length);
                         // Log.d(TAG, "ゲイン = " + gain);
-                        audioTrack.setVolume(gain);
+                        mAudioTrack.setVolume(gain);
                     }
-                    audioTrack.write(data, 0, data.length);
+                    mAudioTrack.write(data, 0, data.length);
                 }
             }
-            // audioTrack.setVolume(1.0F);
+            // mAudioTrack.setVolume(1.0F);
             // まとめて再生する場合
-            // audioTrack.write(wavData, 0, wavDataSize);
-            Log.d(TAG, "audioTrackを開放");
-            audioTrack.stop();
-            audioTrack.release();
+            // mAudioTrack.write(wavData, 0, wavDataSize);
+            Log.d(TAG, "audioTrackを停止");
+            mAudioTrack.stop();
         } catch (Exception e){
             Log.e(TAG, e.getMessage());
             throw new Exception(e.getMessage());
@@ -301,9 +374,8 @@ public class MainActivity extends AppCompatActivity {
                                     wavDataSizeLowByte1, wavDataSizeUpperByte1};
             int wavDataSize = ByteBuffer.wrap(wavDataSizeByte).getInt();
             Log.d(TAG, "データサイズ(総バイト数) : "+wavDataSize);
-            mSoundDataSize = wavDataSize;
             // ヘッダサイズ(データ開始地点までとする)
-            mHeaderSize = mAllDataSize - mSoundDataSize;
+            mHeaderSize = mAllDataSize - wavDataSize;
         }
     }
 }
