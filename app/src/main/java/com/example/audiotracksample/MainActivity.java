@@ -12,6 +12,7 @@ import android.widget.Button;
 import java.io.InputStream;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.text.DecimalFormat;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -95,15 +96,15 @@ public class MainActivity extends AppCompatActivity {
 
             int wavDataSize = input.read(wavData);
             Log.d(TAG, "wavDataSize : " + wavDataSize);
-//            // 4byte配列でないと、ByteBufferでエラーが出る
+            // 4byte配列でないと、ByteBufferでエラーが出る
 //            byte[] wavBlockByteData = {0,0,0,0};
 //            ByteBuffer intBuffer = ByteBuffer.allocate(Integer.BYTES);
-//            for (int i = 0; i < wavDataSize; i+=2){
-//
-//                // リトルエンディアンで後ろから並べる
+            for (int i = 0; i < wavDataSize; i+=2){
+
+                // リトルエンディアンで後ろから並べる
 //                wavBlockByteData[2] = wavData[i + 1];
 //                wavBlockByteData[3] = wavData[i];
-//
+
 //                intBuffer.clear();
 //                intBuffer.put(wavBlockByteData);
 //                intBuffer.flip();
@@ -121,14 +122,21 @@ public class MainActivity extends AppCompatActivity {
 //                // wavDataを置き換え
 //                wavData[i + 1] = wavBlockByteData[2];
 //                wavData[i] = wavBlockByteData[3];
-//            }
-//            for (float i = 0.1f; i <= 1.0F; i+=0.1){
-//                Log.d(TAG, "i = " + i);
-//                audioTrack.setVolume(i);
-//                audioTrack.write(wavData, 0, wavDataSize);
-//            }
-            audioTrack.setVolume(1.0F);
-            audioTrack.write(wavData, 0, wavDataSize);
+
+                // 逐次writeする場合
+                byte[] data = {wavData[i], wavData[i+1]};
+                // 1000の倍数ごとにGainを変更
+                // これぐらいの変更頻度でないとブツブツ音になる
+                if (i % 1000 == 0){
+                    float gain = ((float)i / (float)wavDataSize);
+                    // Log.d(TAG, "ゲイン = " + gain);
+                    audioTrack.setVolume(gain);
+                }
+                audioTrack.write(data, 0, data.length);
+            }
+            // audioTrack.setVolume(1.0F);
+            // まとめて再生する場合
+            // audioTrack.write(wavData, 0, wavDataSize);
             input.close();
             audioTrack.stop();
             audioTrack.release();
