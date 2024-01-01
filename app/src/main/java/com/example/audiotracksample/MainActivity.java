@@ -2,17 +2,14 @@ package com.example.audiotracksample;
 
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
-import android.media.AudioManager;
 import android.media.AudioTrack;
-import android.media.SoundPool;
+import android.os.AsyncTask;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
 
 import java.io.InputStream;
-import java.math.BigDecimal;
 import java.nio.ByteBuffer;
-import java.text.DecimalFormat;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -27,6 +24,7 @@ public class MainActivity extends AppCompatActivity {
     private int mAllDataSize; // 全データサイズ
     private int mSoundDataSize; // 音声データサイズ
     private int mHeaderSize; // mAllDataSize - mSoundDataSize
+    private boolean mIsPlaying; // 再生中 = true, 停止中 = false
 
 
     @Override
@@ -41,11 +39,34 @@ public class MainActivity extends AppCompatActivity {
         // expression lambda
         button.setOnClickListener(v-> {
             try {
-                 wavPlay();
+                if (!mIsPlaying){
+                    mIsPlaying = true;
+                    Log.d(TAG, "再生開始");
+                    button.setText("Stop");
+                    // 非同期でAudioTrackの再生を開始
+                    new WavPlayTask().execute();
+                }
+                else {
+                    mIsPlaying = false;
+                    Log.d(TAG, "再生停止");
+                    button.setText("Play");
+                }
             } catch (Exception e) {
                 throw new RuntimeException(e);
             }
         });
+    }
+
+    private class WavPlayTask extends AsyncTask<Void, Void, Void>{
+        @Override
+        protected Void doInBackground(Void... voids) {
+            try {
+                wavPlay();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            return null;
+        }
     }
 
     private void wavPlay() throws Exception {
@@ -95,13 +116,19 @@ public class MainActivity extends AppCompatActivity {
             audioTrack.play();
 
             int wavDataSize = input.read(wavData);
+            input.close();
             Log.d(TAG, "wavDataSize : " + wavDataSize);
             // 4byte配列でないと、ByteBufferでエラーが出る
 //            byte[] wavBlockByteData = {0,0,0,0};
 //            ByteBuffer intBuffer = ByteBuffer.allocate(Integer.BYTES);
-            for (int i = 0; i < wavDataSize; i+=2){
-
-                // リトルエンディアンで後ろから並べる
+            while (mIsPlaying){
+                Log.d(TAG, "再生中...");
+                for (int i = 0; i < wavDataSize; i+=2){
+                    // 再生停止なら抜ける
+                    if (!mIsPlaying){
+                        break;
+                    }
+                    // リトルエンディアンで後ろから並べる
 //                wavBlockByteData[2] = wavData[i + 1];
 //                wavBlockByteData[3] = wavData[i];
 
@@ -123,21 +150,22 @@ public class MainActivity extends AppCompatActivity {
 //                wavData[i + 1] = wavBlockByteData[2];
 //                wavData[i] = wavBlockByteData[3];
 
-                // 逐次writeする場合
-                byte[] data = {wavData[i], wavData[i+1]};
-                // 1000の倍数ごとにGainを変更
-                // これぐらいの変更頻度でないとブツブツ音になる
-                if (i % 1000 == 0){
-                    float gain = ((float)i / (float)wavDataSize);
-                    // Log.d(TAG, "ゲイン = " + gain);
-                    audioTrack.setVolume(gain);
+                    // 逐次writeする場合
+                    byte[] data = {wavData[i], wavData[i+1]};
+                    // 1000の倍数ごとにGainを変更
+                    // これぐらいの変更頻度でないとブツブツ音になる
+                    if (i % 1000 == 0){
+                        float gain = ((float)i / (float)wavDataSize);
+                        // Log.d(TAG, "ゲイン = " + gain);
+                        audioTrack.setVolume(gain);
+                    }
+                    audioTrack.write(data, 0, data.length);
                 }
-                audioTrack.write(data, 0, data.length);
             }
             // audioTrack.setVolume(1.0F);
             // まとめて再生する場合
             // audioTrack.write(wavData, 0, wavDataSize);
-            input.close();
+            Log.d(TAG, "audioTrackを開放");
             audioTrack.stop();
             audioTrack.release();
         } catch (Exception e){
