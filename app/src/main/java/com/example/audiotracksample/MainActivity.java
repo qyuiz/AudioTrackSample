@@ -37,8 +37,10 @@ public class MainActivity extends AppCompatActivity {
     private int mAudioFormat;
     private int mAllDataSize; // 全データサイズ
     private int mHeaderSize; // mAllDataSize - wavDataSize
+    private int mStartIndex;
+    private int mEndIndex;
     private boolean mIsPlaying; // 再生中 = true, 停止中 = false
-    private final static int SOUND_DATA_ID = R.raw.sine_400;
+    private final static int SOUND_DATA_ID = R.raw.sinwave_440hz;
     private AudioTrack mAudioTrack;
     byte[] mWavData;
     Button mPlayButton;
@@ -99,6 +101,10 @@ public class MainActivity extends AppCompatActivity {
 
         // wavデータセット
         setWavData();
+
+//        for (int i = 0; i < mWavData.length; i+=2){
+//            Log.d(TAG, "[" + i + ", " + (i+1) + "] => [" + Integer.toHexString(mWavData[i]) + ", " + Integer.toHexString(mWavData[i+1]) + "]");
+//        }
     }
 
     @Override
@@ -189,6 +195,8 @@ public class MainActivity extends AppCompatActivity {
 
     private void setWavData(){
         try {
+            // TODO:音声データの再読込時に波形が切り替わるのでプツッとなるのを対処する(https://note.com/nc_kanai/n/n874a4be11aef)
+            // TODO:ゲイン変更頻度は固定でいいのか？
             // 再生読み込み用
             InputStream inputStream = getResources().openRawResource(SOUND_DATA_ID);
             // ヘッダ解析用
@@ -201,8 +209,14 @@ public class MainActivity extends AppCompatActivity {
             // データによっては、ヘッダが44byteとは限らない、、。
             // だが、必ず、fmt と data のチャンクIDは必ずある
             // data から取れる音声データのサイズ以外をヘッダとする
-            headerBuffer = new byte[mHeaderSize];
-            inputStream.read(headerBuffer, 0, mHeaderSize);
+            if (mStartIndex != 0){
+                headerBuffer = new byte[mStartIndex];
+                inputStream.read(headerBuffer, 0, mStartIndex);
+            }
+            else {
+                headerBuffer = new byte[mHeaderSize];
+                inputStream.read(headerBuffer, 0, mHeaderSize);
+            }
 
             int bufferSize = AudioTrack.getMinBufferSize(mSampleRate, mChannelConfig, mAudioFormat);
             // http://bril-tech.blogspot.com/2015/08/androidaudiotrack.html
@@ -243,12 +257,16 @@ public class MainActivity extends AppCompatActivity {
 //            byte[] wavBlockByteData = {0,0,0,0};
 //            ByteBuffer intBuffer = ByteBuffer.allocate(Integer.BYTES);
             while (mIsPlaying){
-                Log.d(TAG, "再生中...");
                 for (int i = 0; i < mWavData.length; i+=2){
                     // 再生停止なら抜ける
                     if (!mIsPlaying){
                         break;
                     }
+                    // エンド地点なら抜ける
+                    if (i == mEndIndex){
+                        break;
+                    }
+
                     // リトルエンディアンで後ろから並べる
 //                wavBlockByteData[2] = wavData[i + 1];
 //                wavBlockByteData[3] = wavData[i];
@@ -422,6 +440,23 @@ public class MainActivity extends AppCompatActivity {
             Log.d(TAG, "データサイズ(総バイト数) : "+wavDataSize);
             // ヘッダサイズ(データ開始地点までとする)
             mHeaderSize = mAllDataSize - wavDataSize;
+        }
+
+        // スタート探し
+        for (int i = mHeaderSize; i < wavHeaderData.length; i+=2){
+            if (wavHeaderData[i] != 0x00 || wavHeaderData[i+1] != 0x00){
+                mStartIndex = i;
+                Log.d(TAG, "開始地点 : " + mStartIndex);
+                break;
+            }
+        }
+        // エンド探し
+        for (int i = mAllDataSize-1; i > mHeaderSize; i-=2){
+            if (wavHeaderData[i-1] != 0x00 || wavHeaderData[i] != 0x00){
+                mEndIndex = i;
+                Log.d(TAG, "終了地点 : " + mEndIndex);
+                break;
+            }
         }
     }
 }
