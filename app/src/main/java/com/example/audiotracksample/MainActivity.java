@@ -18,6 +18,15 @@ import java.nio.ByteBuffer;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+class Rotation {
+    public float rotationX;
+    public float rotationY;
+    public float rotationZ;
+    public Rotation(){
+
+    }
+}
+
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "AudioTrackSample";
@@ -39,6 +48,13 @@ public class MainActivity extends AppCompatActivity {
     private Sensor mRotationSensor;
     private TextView mSensorTextView;
 
+    private static final float MAX_DIFF = 0.3F;
+    private float mGain;
+    private Rotation mRotationSaveData = new Rotation();
+    private Rotation mRotationData = new Rotation();
+    private TextView mSensorSaveTextView;
+    private TextView mSensorSaveDiffTextView;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -48,6 +64,8 @@ public class MainActivity extends AppCompatActivity {
         mSensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
         mRotationSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR);
         mSensorTextView = findViewById(R.id.sensorTextView);
+        mSensorSaveTextView = findViewById(R.id.sensorSaveTextView);
+        mSensorSaveDiffTextView = findViewById(R.id.sensorSaveDiffTextView);
 
         // リスナーをボタンに登録
         // expression lambda
@@ -65,6 +83,7 @@ public class MainActivity extends AppCompatActivity {
                     mIsPlaying = false;
                     Log.d(TAG, "再生停止");
                     mPlayButton.setText("Play");
+                    mSensorSaveDiffTextView.setText("");
                 }
             } catch (Exception e) {
                 throw new RuntimeException(e);
@@ -87,6 +106,7 @@ public class MainActivity extends AppCompatActivity {
         super.onPause();
         // センサーリスナー登録解除
         mSensorManager.unregisterListener(mSensorEventListener);
+        mSensorSaveDiffTextView.setText("");
 
         if (mAudioTrack != null){
             mIsPlaying = false;
@@ -101,6 +121,7 @@ public class MainActivity extends AppCompatActivity {
         super.onDestroy();
         // センサーリスナー登録解除
         mSensorManager.unregisterListener(mSensorEventListener);
+        mSensorSaveDiffTextView.setText("");
 
         if (mAudioTrack != null){
             mIsPlaying = false;
@@ -114,10 +135,25 @@ public class MainActivity extends AppCompatActivity {
         @Override
         public void onSensorChanged(SensorEvent event) {
             if (event.sensor.getType() == Sensor.TYPE_GAME_ROTATION_VECTOR){
-                float rotationX = event.values[0];
-                float rotationY = event.values[1];
-                float rotationZ = event.values[2];
-                String strTmp = "ジャイロセンサー\nX: " + rotationX + "\nY: " + rotationY + "\nZ: " + rotationZ;
+                // 再生中でなければ更新する
+                if (!mIsPlaying){
+                    mRotationSaveData.rotationX = event.values[0];
+                    mRotationSaveData.rotationY = event.values[1];
+                    mRotationSaveData.rotationZ = event.values[2];
+                    String strSaveTmp = "ジャイロセンサー(保存値)\nX: " + mRotationSaveData.rotationX +
+                            "\nY: " + mRotationSaveData.rotationY + "\nZ: " + mRotationSaveData.rotationZ;
+                    mSensorSaveTextView.setText(strSaveTmp);
+                }
+                else {
+                    // ゲイン計算
+                    calGain();
+                }
+                mRotationData.rotationX = event.values[0];
+                mRotationData.rotationY = event.values[1];
+                mRotationData.rotationZ = event.values[2];
+
+                String strTmp = "ジャイロセンサー\nX: " + mRotationData.rotationX + "\nY: " +
+                        mRotationData.rotationY + "\nZ: " + mRotationData.rotationZ;
                 mSensorTextView.setText(strTmp);
             }
         }
@@ -127,6 +163,17 @@ public class MainActivity extends AppCompatActivity {
 
         }
     };
+
+    private void calGain(){
+        // ジャイロセンサー値に応じて、ゲインを求める
+        float diffAbsY = Math.abs(mRotationSaveData.rotationY - mRotationData.rotationY);
+        mGain = diffAbsY / MAX_DIFF;
+        if (mGain >= 1.0F){
+            mGain = 1.0F;
+        }
+        String strTemp = "絶対値:" + diffAbsY + "\nゲイン:" + mGain;
+        mSensorSaveDiffTextView.setText(strTemp);
+    }
 
     private class WavPlayTask extends AsyncTask<Void, Void, Void>{
         @Override
@@ -229,9 +276,8 @@ public class MainActivity extends AppCompatActivity {
                     // 1000の倍数ごとにGainを変更
                     // これぐらいの変更頻度でないとブツブツ音になる
                     if (i % 1000 == 0){
-                        float gain = ((float)i / (float)mWavData.length);
-                        // Log.d(TAG, "ゲイン = " + gain);
-                        mAudioTrack.setVolume(gain);
+                        // ジャイロに応じたゲインを適用
+                        mAudioTrack.setVolume(mGain);
                     }
                     mAudioTrack.write(data, 0, data.length);
                 }

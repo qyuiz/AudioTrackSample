@@ -23,4 +23,20 @@
         android:textSize="30sp"
         android:layout_marginTop="20dp"/>
 
+    <TextView
+        android:id="@+id/sensorSaveTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="ジャイロデータ(保存値)"
+        android:textSize="30sp"
+        android:layout_marginTop="20dp"/>
+
+    <TextView
+        android:id="@+id/sensorSaveDiffTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="ジャイロデータ(差分絶対値)"
+        android:textSize="30sp"
+        android:layout_marginTop="20dp"/>
+
 </LinearLayout>
