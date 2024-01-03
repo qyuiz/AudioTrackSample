@@ -1,13 +1,17 @@
 package com.example.audiotracksample;
 
+import android.Manifest;
+import android.content.pm.PackageManager;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
+import android.location.Location;
 import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioTrack;
 import android.os.AsyncTask;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
@@ -15,14 +19,25 @@ import android.widget.TextView;
 
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.util.List;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+
+import com.google.android.gms.location.FusedLocationProviderClient;
+import com.google.android.gms.location.LocationCallback;
+import com.google.android.gms.location.LocationRequest;
+import com.google.android.gms.location.LocationResult;
+import com.google.android.gms.location.LocationServices;
+import com.google.android.gms.location.Priority;
 
 class Rotation {
     public float rotationX;
     public float rotationY;
     public float rotationZ;
-    public Rotation(){
+
+    public Rotation() {
 
     }
 }
@@ -56,11 +71,44 @@ public class MainActivity extends AppCompatActivity {
     private Rotation mRotationData = new Rotation();
     private TextView mSensorSaveTextView;
     private TextView mSensorSaveDiffTextView;
+    private static final int PERMISSION_REQUEST_CODE = 1234;
+    private LocationCallback mLocationCallback;
+    private FusedLocationProviderClient mFusedLocationProviderClient;
+    private TextView mSpeedTextView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        if (Build.VERSION.SDK_INT >= 23) {
+            Log.d(TAG, "パーミッションの確認を実行");
+            requestPermission();
+        }
+
+        mFusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
+        mSpeedTextView = findViewById(R.id.speedTextView);
+        mLocationCallback = new LocationCallback() {
+            @Override
+            public void onLocationResult(@NonNull LocationResult locationResult) {
+                super.onLocationResult(locationResult);
+
+                if (locationResult == null){
+                    return;
+                }
+
+                List<Location> locations = locationResult.getLocations();
+                for (Location location : locations){
+                    if (location.hasSpeed()){
+                        float speed = location.getSpeed() * 3.6F;
+                        long speedLong = Math.round(speed);
+                        mSpeedTextView.setText(speedLong + " [km/h]" +
+                                " 精度 : " + (location.getSpeedAccuracyMetersPerSecond()*100) + "%");
+                    }
+                }
+            }
+        };
+
 
         // センサーを取得
         mSensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
@@ -72,16 +120,15 @@ public class MainActivity extends AppCompatActivity {
         // リスナーをボタンに登録
         // expression lambda
         mPlayButton = findViewById(R.id.play_button);
-        mPlayButton.setOnClickListener(v-> {
+        mPlayButton.setOnClickListener(v -> {
             try {
-                if (!mIsPlaying){
+                if (!mIsPlaying) {
                     mIsPlaying = true;
                     Log.d(TAG, "再生開始");
                     mPlayButton.setText("Stop");
                     // 非同期でAudioTrackの再生を開始
                     new WavPlayTask().execute();
-                }
-                else {
+                } else {
                     mIsPlaying = false;
                     Log.d(TAG, "再生停止");
                     mPlayButton.setText("Play");
@@ -93,9 +140,89 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void startLocationUpdates() {
+        LocationRequest locationRequest = createLocationRequest();
+        if (locationRequest == null) {
+            return;
+        }
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED &&
+                ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
+                        != PackageManager.PERMISSION_GRANTED) {
+            // TODO: Consider calling
+            //    ActivityCompat#requestPermissions
+            // here to request the missing permissions, and then overriding
+            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            //                                          int[] grantResults)
+            // to handle the case where the user grants the permission. See the documentation
+            // for ActivityCompat#requestPermissions for more details.
+            return;
+        }
+        mFusedLocationProviderClient.requestLocationUpdates(locationRequest, mLocationCallback, null);
+    }
+
+    private void stopLocationUpdates() {
+        mFusedLocationProviderClient.removeLocationUpdates(mLocationCallback);
+    }
+
+    private LocationRequest createLocationRequest() {
+        LocationRequest.Builder locationRequest = new LocationRequest.Builder(1000);
+        locationRequest.setWaitForAccurateLocation(true);
+        locationRequest.setPriority(Priority.PRIORITY_HIGH_ACCURACY);
+        return locationRequest.build();
+    }
+
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST_CODE){
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED){
+                Log.d(TAG, "パーミッション許可");
+            }
+            else {
+                Log.d(TAG, "パーミッション拒否");
+            }
+        }
+    }
+
+    private void requestPermission(){
+        // フォアグラウンドのパーミッション
+        boolean permissionAccessCoarseLocationApproved =
+                ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION)
+                        == PackageManager.PERMISSION_GRANTED &&
+                        ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
+                                == PackageManager.PERMISSION_GRANTED;
+        if (permissionAccessCoarseLocationApproved){
+            // バックグラウンドのパーミッション
+            boolean backgroundAccessCoarseLocationApproved =
+                    ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                            == PackageManager.PERMISSION_GRANTED;
+            if (backgroundAccessCoarseLocationApproved){
+                Log.d(TAG, "位置情報権限あり");
+            }
+            else {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{android.Manifest.permission.ACCESS_BACKGROUND_LOCATION},
+                        PERMISSION_REQUEST_CODE);
+            }
+        }
+        else {
+            Log.d(TAG, "位置情報権限を確認する");
+            ActivityCompat.requestPermissions(this,
+                    new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                            android.Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_BACKGROUND_LOCATION},
+                    PERMISSION_REQUEST_CODE);
+        }
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
+
+        startLocationUpdates();
+
         // センサーリスナー登録
         mSensorManager.registerListener(mSensorEventListener, mRotationSensor, SensorManager.SENSOR_DELAY_FASTEST);
 
@@ -110,6 +237,9 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onPause() {
         super.onPause();
+
+        stopLocationUpdates();
+
         // センサーリスナー登録解除
         mSensorManager.unregisterListener(mSensorEventListener);
         mSensorSaveDiffTextView.setText("");
@@ -125,6 +255,9 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+
+        stopLocationUpdates();
+
         // センサーリスナー登録解除
         mSensorManager.unregisterListener(mSensorEventListener);
         mSensorSaveDiffTextView.setText("");

@@ -39,4 +39,12 @@
         android:textSize="30sp"
         android:layout_marginTop="20dp"/>
 
+    <TextView
+        android:id="@+id/speedTextView"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="速度"
+        android:textSize="30sp"
+        android:layout_marginTop="20dp"/>
+
 </LinearLayout>
