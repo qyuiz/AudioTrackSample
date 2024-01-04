@@ -1,6 +1,7 @@
 package com.example.audiotracksample;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -16,9 +17,11 @@ import android.os.Bundle;
 import android.util.Log;
 import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import java.io.InputStream;
 import java.nio.ByteBuffer;
+import java.text.DecimalFormat;
 import java.util.List;
 
 import androidx.annotation.NonNull;
@@ -45,6 +48,8 @@ class Rotation {
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "AudioTrackSample";
+    private Context mContext;
+    DecimalFormat df = new DecimalFormat("#.##");
 
     // hello_world.wav のサンプリングレート
     private int mSampleRate;
@@ -72,22 +77,31 @@ public class MainActivity extends AppCompatActivity {
     private TextView mSensorSaveTextView;
     private TextView mSensorSaveDiffTextView;
     private static final int PERMISSION_REQUEST_CODE = 1234;
+    private String[] LOCATION_PERMISSION = new String[]{
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.ACCESS_FINE_LOCATION
+    };
+    private String[] LOCATION_BACKGROUND_PERMISSION = new String[]{
+            Manifest.permission.ACCESS_BACKGROUND_LOCATION
+    };
     private LocationCallback mLocationCallback;
     private FusedLocationProviderClient mFusedLocationProviderClient;
     private TextView mSpeedTextView;
+    private double mBeforeLongitude = -181; // 経度(前回値) 初期値は範囲外
+    private double mBeforeLatitude = -91; // 緯度(前回値) 初期値は範囲外
+    private long mBeforeTime; // 時間(前回値)
+    private TextView mLocationTextView;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-        if (Build.VERSION.SDK_INT >= 23) {
-            Log.d(TAG, "パーミッションの確認を実行");
-            requestPermission();
-        }
+        mContext = this;
 
         mFusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
         mSpeedTextView = findViewById(R.id.speedTextView);
+        mLocationTextView = findViewById(R.id.locationTextView);
         mLocationCallback = new LocationCallback() {
             @Override
             public void onLocationResult(@NonNull LocationResult locationResult) {
@@ -99,12 +113,40 @@ public class MainActivity extends AppCompatActivity {
 
                 List<Location> locations = locationResult.getLocations();
                 for (Location location : locations){
-                    if (location.hasSpeed()){
+                    // 速度と信頼度がある場合のみ
+                    if (location.hasSpeed() && location.hasSpeedAccuracy()){
                         float speed = location.getSpeed() * 3.6F;
                         long speedLong = Math.round(speed);
-                        mSpeedTextView.setText(speedLong + " [km/h]" +
-                                " 精度 : " + (location.getSpeedAccuracyMetersPerSecond()*100) + "%");
+                        float speedAccuracy = location.getSpeedAccuracyMetersPerSecond() * 3.6F;
+                        long speedAccuracyLong = Math.round(speedAccuracy);
+                        mSpeedTextView.setText(speedLong + " [km/h]\n" +
+                                "精度(信頼区間68%) : ±" + speedAccuracyLong + "[km/h]");
                     }
+
+                    double longitude = location.getLongitude();
+                    double latitude = location.getLatitude();
+                    long time = location.getElapsedRealtimeNanos();
+
+                    if (mBeforeLongitude != -181 && mBeforeLatitude != -91){
+                        double distance = haversineDistance(mBeforeLatitude, mBeforeLongitude,
+                                latitude, longitude);
+                        long timeDiffInNano = time - mBeforeTime;
+                        long timeDifferenceInSeconds = timeDiffInNano / 1000000000;
+                        double speedKPerH = (distance / (double) timeDifferenceInSeconds) * 3.6;
+                        String strTmp = "緯度 : " + df.format(latitude) + "[度]" +
+                                " 経度 : " + df.format(longitude) + "[度]\n"
+                                + "移動距離 : " + df.format(distance) + "[m]\n" +
+                                "移動時間 : " + timeDifferenceInSeconds + "[s]\n" +
+                                "計算時速 : " + df.format(speedKPerH) + "[km/h]";
+                        if (location.hasAccuracy()){
+                            float accuracy = location.getAccuracy();
+                            strTmp = strTmp + "\n" + "精度 : " + accuracy;
+                        }
+                        mLocationTextView.setText(strTmp);
+                    }
+                    mBeforeLongitude = longitude;
+                    mBeforeLatitude = latitude;
+                    mBeforeTime = time;
                 }
             }
         };
@@ -140,22 +182,29 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    public static double haversineDistance(double lat1, double lon1, double lat2, double lon2) {
+        // 地球の半径(m)
+        final double R = 6371000.0;
+
+        // 緯度経度をラジアン単位に変換する
+        double lat1Rad = Math.toRadians(lat1);
+        double lon1Rad = Math.toRadians(lon1);
+        double lat2Rad = Math.toRadians(lat2);
+        double lon2Rad = Math.toRadians(lon2);
+
+        // 緯度経度地点の差
+        double diffLat = lat2Rad - lat1Rad;
+        double diffLon = lon2Rad - lon1Rad;
+
+        // ハーバーサイン公式で計算
+        double a = Math.pow(Math.sin(diffLat / 2), 2) + Math.cos(lat1Rad) * Math.cos(lat2Rad) * Math.pow(Math.sin(diffLon / 2), 2);
+        double c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
+
     private void startLocationUpdates() {
         LocationRequest locationRequest = createLocationRequest();
         if (locationRequest == null) {
-            return;
-        }
-        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED &&
-                ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION)
-                        != PackageManager.PERMISSION_GRANTED) {
-            // TODO: Consider calling
-            //    ActivityCompat#requestPermissions
-            // here to request the missing permissions, and then overriding
-            //   public void onRequestPermissionsResult(int requestCode, String[] permissions,
-            //                                          int[] grantResults)
-            // to handle the case where the user grants the permission. See the documentation
-            // for ActivityCompat#requestPermissions for more details.
             return;
         }
         mFusedLocationProviderClient.requestLocationUpdates(locationRequest, mLocationCallback, null);
@@ -166,7 +215,7 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private LocationRequest createLocationRequest() {
-        LocationRequest.Builder locationRequest = new LocationRequest.Builder(1000);
+        LocationRequest.Builder locationRequest = new LocationRequest.Builder(2000);
         locationRequest.setWaitForAccurateLocation(true);
         locationRequest.setPriority(Priority.PRIORITY_HIGH_ACCURACY);
         return locationRequest.build();
@@ -178,60 +227,64 @@ public class MainActivity extends AppCompatActivity {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE){
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED){
-                Log.d(TAG, "パーミッション許可");
+                Toast.makeText(this, "パーミッションが許可されました。", Toast.LENGTH_LONG).show();
+
+                if (permissions == LOCATION_PERMISSION){
+                    startLocationUpdates();
+                }
             }
             else {
-                Log.d(TAG, "パーミッション拒否");
+                Toast.makeText(this, "パーミッションが拒否されました。", Toast.LENGTH_LONG).show();
+
+                if (permissions == LOCATION_PERMISSION){
+                    stopLocationUpdates();
+                }
             }
         }
     }
 
-    private void requestPermission(){
-        // フォアグラウンドのパーミッション
-        boolean permissionAccessCoarseLocationApproved =
-                ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_COARSE_LOCATION)
-                        == PackageManager.PERMISSION_GRANTED &&
-                        ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
-                                == PackageManager.PERMISSION_GRANTED;
-        if (permissionAccessCoarseLocationApproved){
-            // バックグラウンドのパーミッション
-            boolean backgroundAccessCoarseLocationApproved =
-                    ActivityCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-                            == PackageManager.PERMISSION_GRANTED;
-            if (backgroundAccessCoarseLocationApproved){
-                Log.d(TAG, "位置情報権限あり");
-            }
-            else {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{android.Manifest.permission.ACCESS_BACKGROUND_LOCATION},
-                        PERMISSION_REQUEST_CODE);
+    private boolean checkLocationPermission(){
+        for (String permission : LOCATION_PERMISSION){
+            if (ActivityCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_DENIED){
+                return false;
             }
         }
-        else {
-            Log.d(TAG, "位置情報権限を確認する");
-            ActivityCompat.requestPermissions(this,
-                    new String[]{android.Manifest.permission.ACCESS_COARSE_LOCATION,
-                            android.Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_BACKGROUND_LOCATION},
-                    PERMISSION_REQUEST_CODE);
+        return true;
+    }
+
+    private boolean checkLocationBackGroundPermission(){
+        for (String permission : LOCATION_BACKGROUND_PERMISSION){
+            if (ActivityCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_DENIED){
+                return false;
+            }
         }
+        return true;
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-
-        startLocationUpdates();
+        // SDK23以上はパーミッションの許可が必須
+        if (Build.VERSION.SDK_INT >= 23) {
+            if (checkLocationPermission()){
+                Toast.makeText(this, "位置情報権限があります。", Toast.LENGTH_LONG).show();
+                startLocationUpdates();
+            }
+            else {
+                Toast.makeText(this, "位置情報権限がありません、許可を要求します。", Toast.LENGTH_LONG).show();
+                // BACKGROUNDのPERMISSIONを抜かしたら、許可ダイアログが表示された
+                ActivityCompat.requestPermissions(this, LOCATION_PERMISSION, PERMISSION_REQUEST_CODE);
+            }
+        }
+        else {
+            startLocationUpdates();
+        }
 
         // センサーリスナー登録
         mSensorManager.registerListener(mSensorEventListener, mRotationSensor, SensorManager.SENSOR_DELAY_FASTEST);
 
         // wavデータセット
         setWavData();
-
-//        for (int i = 0; i < mWavData.length; i+=2){
-//            Log.d(TAG, "[" + i + ", " + (i+1) + "] => [" + Integer.toHexString(mWavData[i]) + ", " + Integer.toHexString(mWavData[i+1]) + "]");
-//        }
     }
 
     @Override
@@ -279,8 +332,8 @@ public class MainActivity extends AppCompatActivity {
                     mRotationSaveData.rotationX = event.values[0];
                     mRotationSaveData.rotationY = event.values[1];
                     mRotationSaveData.rotationZ = event.values[2];
-                    String strSaveTmp = "ジャイロセンサー(保存値)\nX: " + mRotationSaveData.rotationX +
-                            "\nY: " + mRotationSaveData.rotationY + "\nZ: " + mRotationSaveData.rotationZ;
+                    String strSaveTmp = "ジャイロセンサー(保存値)\nX: " + df.format(mRotationSaveData.rotationX) +
+                            "\nY: " + df.format(mRotationSaveData.rotationY) + "\nZ: " + df.format(mRotationSaveData.rotationZ);
                     mSensorSaveTextView.setText(strSaveTmp);
                 }
                 else {
@@ -291,8 +344,8 @@ public class MainActivity extends AppCompatActivity {
                 mRotationData.rotationY = event.values[1];
                 mRotationData.rotationZ = event.values[2];
 
-                String strTmp = "ジャイロセンサー\nX: " + mRotationData.rotationX + "\nY: " +
-                        mRotationData.rotationY + "\nZ: " + mRotationData.rotationZ;
+                String strTmp = "ジャイロセンサー\nX: " + df.format(mRotationData.rotationX) + "\nY: " +
+                        df.format(mRotationData.rotationY) + "\nZ: " + df.format(mRotationData.rotationZ);
                 mSensorTextView.setText(strTmp);
             }
         }
@@ -310,7 +363,7 @@ public class MainActivity extends AppCompatActivity {
         if (mGain >= 1.0F){
             mGain = 1.0F;
         }
-        String strTemp = "絶対値:" + diffAbsY + "\nゲイン:" + mGain;
+        String strTemp = "絶対値:" + df.format(diffAbsY) + "\nゲイン:" + df.format(mGain);
         mSensorSaveDiffTextView.setText(strTemp);
     }
 
