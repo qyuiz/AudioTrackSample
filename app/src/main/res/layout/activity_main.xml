@@ -9,11 +9,19 @@
     tools:context=".MainActivity">
 
     <Button
+        android:id="@+id/map_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Map"
+        android:textSize="30sp" />
+
+    <Button
         android:id="@+id/play_button"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Play"
-        android:textSize="30sp" />
+        android:textSize="30sp"
+        android:layout_marginTop="20dp"/>
 
     <TextView
         android:id="@+id/sensorTextView"

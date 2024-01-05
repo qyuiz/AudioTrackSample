@@ -2,6 +2,7 @@ package com.example.audiotracksample;
 
 import android.Manifest;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
@@ -15,6 +16,7 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -81,8 +83,8 @@ public class MainActivity extends AppCompatActivity {
             Manifest.permission.ACCESS_COARSE_LOCATION,
             Manifest.permission.ACCESS_FINE_LOCATION
     };
-    private String[] LOCATION_BACKGROUND_PERMISSION = new String[]{
-            Manifest.permission.ACCESS_BACKGROUND_LOCATION
+    private String[] WRITE_EXTERNAL_STORAGE_PERMISSION = new String[]{
+            Manifest.permission.WRITE_EXTERNAL_STORAGE
     };
     private LocationCallback mLocationCallback;
     private FusedLocationProviderClient mFusedLocationProviderClient;
@@ -98,6 +100,17 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         mContext = this;
+
+        Button mapButton = findViewById(R.id.map_button);
+        mapButton.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Intent intent = new Intent(MainActivity.this, MapActivity.class);
+                intent.putExtra("Lati", mBeforeLatitude);
+                intent.putExtra("Longi", mBeforeLongitude);
+                startActivity(intent);
+            }
+        });
 
         mFusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this);
         mSpeedTextView = findViewById(R.id.speedTextView);
@@ -252,8 +265,8 @@ public class MainActivity extends AppCompatActivity {
         return true;
     }
 
-    private boolean checkLocationBackGroundPermission(){
-        for (String permission : LOCATION_BACKGROUND_PERMISSION){
+    private boolean checkWriteExternalStoragePermission(){
+        for (String permission : WRITE_EXTERNAL_STORAGE_PERMISSION){
             if (ActivityCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_DENIED){
                 return false;
             }
@@ -266,6 +279,7 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         // SDK23以上はパーミッションの許可が必須
         if (Build.VERSION.SDK_INT >= 23) {
+            // 位置情報権限
             if (checkLocationPermission()){
                 Toast.makeText(this, "位置情報権限があります。", Toast.LENGTH_LONG).show();
                 startLocationUpdates();
@@ -275,6 +289,17 @@ public class MainActivity extends AppCompatActivity {
                 // BACKGROUNDのPERMISSIONを抜かしたら、許可ダイアログが表示された
                 ActivityCompat.requestPermissions(this, LOCATION_PERMISSION, PERMISSION_REQUEST_CODE);
             }
+
+            // 保存権限
+            // Android13以上は使えなくなったぽいね
+//            if (checkWriteExternalStoragePermission()){
+//                Toast.makeText(this, "オフラインデータ保存権限があります。", Toast.LENGTH_LONG).show();
+//            }
+//            else {
+//                Toast.makeText(this, "オフラインデータ保存権限がありません、許可を要求します。", Toast.LENGTH_LONG).show();
+//                ActivityCompat.requestPermissions(this, WRITE_EXTERNAL_STORAGE_PERMISSION, PERMISSION_REQUEST_CODE);
+//            }
+
         }
         else {
             startLocationUpdates();
